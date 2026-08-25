@@ -1,13 +1,13 @@
-#include "service_runtime.h"
+#include "server.h"
 
 int main(int argc, char** argv)
 {
-  ServiceRuntime service;
-  if (!service.init(argc, argv)) {
+  server_ctx server;
+  if (!server.init(argc, argv)) {
     return -1;
   }
 
-  const int result = service.run();
-  service.deinit();
+  const int result = server.run();
+  server.deinit();
   return result;
 }

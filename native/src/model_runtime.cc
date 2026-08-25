@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "service_runtime.h"
-#include "service_config.h"
-#include "request_processor.h"
+#include "model_runtime.h"
+#include "config.h"
+#include "request.h"
+#include "output.h"
 
 #include "Tokenizer.h"
 #include "float16.h"
@@ -103,9 +104,9 @@ static void emit_stream_delta(const std::string& piece)
     g_stream_utf8_pending.erase(0, length);
   }
   if (complete.empty()) return;
-  nlohmann::json event = {{"id", request_id}, {"event", "delta"}, {"text", complete}};
-  printf("%s\n", event.dump().c_str());
-  fflush(stdout);
+  write_delta_event(request_id, complete);
+  // Delta was emitted above by the protocol output module.
+  // write_delta_event serializes and flushes JSONL output.
 }
 
 struct TensorBlob
@@ -194,14 +195,7 @@ struct StageInitPerformance
 // Per-request statistics returned by the long-running JSONL daemon.  Keep this
 // separate from the human-readable benchmark output so service callers can
 // record exact token counts without parsing stderr.
-struct RequestMetrics
-{
-  uint64_t input_tokens = 0;
-  uint64_t output_tokens = 0;
-  float    ttft_ms = 0.0f;
-  float    decode_ms = 0.0f;
-  float    decode_tps = 0.0f;
-};
+using RequestMetrics = GenerationMetrics;
 
 struct StageRuntime
 {
@@ -1291,24 +1285,8 @@ static bool run_pipeline_once(std::vector<StageRuntime>& stages, PipelineState& 
 }
 
 
-bool ServiceRuntime::init(int argc, char** argv)
+int model_runtime_run(int argc, char** argv)
 {
-  argc_ = argc;
-  argv_ = argv;
-  return argc_ > 0 && argv_ != nullptr;
-}
-
-void ServiceRuntime::deinit()
-{
-  // All RKNN, Tokenizer, mmap and KV-cache resources are released by run()
-  // before it returns. This method keeps the process lifecycle explicit for
-  // callers and remains the single extension point for future persistent state.
-}
-
-int ServiceRuntime::run()
-{
-  const int argc = argc_;
-  char** argv = argv_;
   const bool config_mode = argc >= 3 && strcmp(argv[1], "--config") == 0;
   if (!config_mode && argc < 9) {
     LOGW("Usage: %s <stage0_model.rknn> <stage0_weight> <tokenizer.gguf> <embedding.bin> <max_context_len> <run_core_mask> <stage_count> <bucket_size> [prompt] [max_new_tokens] [verbose] [ignore_eos] [rope_path] [device_id_0] ... [--perf <input_tokens> <output_tokens>]\n",
@@ -1715,37 +1693,20 @@ int ServiceRuntime::run()
   };
 
   if (g_daemon_mode) {
-    nlohmann::json ready = {{"ready", true}, {"model", "qwen3.5-9b-110k"}, {"stage_count", g_stage_count}};
-    printf("%s\n", ready.dump().c_str());
-    fflush(stdout);
+    write_ready_event("qwen3.5-9b-110k", g_stage_count);
     std::string line;
     while (std::getline(std::cin, line)) {
-      nlohmann::json reply;
+      std::string request_id;
       try {
-        nlohmann::json request = nlohmann::json::parse(line);
-        const std::string id = request.value("id", "");
-        const int request_max_new_tokens = request.value("max_new_tokens", max_new_tokens);
-        const bool request_enable_thinking = request.value("enable_thinking", false);
-        std::string request_prompt;
-        if (request.contains("messages")) {
-          request_prompt = build_qwen35_chat_prompt(request.at("messages"), request_enable_thinking);
-        } else if (request.contains("prompt") && request.at("prompt").is_string()) {
-          // Compatibility path for SDK-level debugging only. Production
-          // callers should use messages so the template stays service-owned.
-          request_prompt = request.at("prompt").get<std::string>();
-        } else {
-          throw std::runtime_error("messages is required");
-        }
-        if (request_prompt.empty() || request_max_new_tokens <= 0) {
-          throw std::runtime_error("prompt and positive max_new_tokens are required");
-        }
+        const ChatRequest request = parse_chat_request(line, max_new_tokens);
+        request_id = request.id;
         {
           std::lock_guard<std::mutex> lock(g_generated_text_mutex);
           g_generated_text.clear();
         }
         {
           std::lock_guard<std::mutex> lock(g_stream_request_id_mutex);
-          g_stream_request_id = id;
+          g_stream_request_id = request.id;
         }
         {
           std::lock_guard<std::mutex> lock(g_stream_utf8_mutex);
@@ -1753,17 +1714,11 @@ int ServiceRuntime::run()
         }
         std::string response_text;
         RequestMetrics request_metrics;
-        if (!run_request(request_prompt, request_max_new_tokens, request_enable_thinking,
+        if (!run_request(request.prompt, request.max_new_tokens, request.enable_thinking,
                          &response_text, &request_metrics)) {
           throw std::runtime_error("multicard inference failed");
         }
-        reply = {{"id", id}, {"ok", true}, {"text", response_text},
-                 {"metrics", {{"input_tokens", request_metrics.input_tokens},
-                              {"output_tokens", request_metrics.output_tokens},
-                              {"total_tokens", request_metrics.input_tokens + request_metrics.output_tokens},
-                              {"ttft_ms", request_metrics.ttft_ms},
-                              {"decode_ms", request_metrics.decode_ms},
-                              {"decode_tps", request_metrics.decode_tps}}}};
+        write_success_event(request.id, response_text, request_metrics);
         {
           std::lock_guard<std::mutex> lock(g_stream_request_id_mutex);
           g_stream_request_id.clear();
@@ -1773,10 +1728,8 @@ int ServiceRuntime::run()
           std::lock_guard<std::mutex> lock(g_stream_request_id_mutex);
           g_stream_request_id.clear();
         }
-        reply = {{"ok", false}, {"error", error.what()}};
+        write_error_event(request_id, error.what());
       }
-      printf("%s\n", reply.dump().c_str());
-      fflush(stdout);
     }
   } else {
     std::string ignored;

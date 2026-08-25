@@ -44,9 +44,11 @@ endif()
 
 add_executable(rk1828_qwen35_9b_2cards_daemon
   native/src/main.cc
-  native/src/service_runtime.cc
-  native/src/service_config.cc
-  native/src/request_processor.cc
+  native/src/server.cc
+  native/src/model_runtime.cc
+  native/src/config.cc
+  native/src/request.cc
+  native/src/output.cc
 )
 
 target_compile_features(rk1828_qwen35_9b_2cards_daemon PRIVATE cxx_std_14)
@@ -63,7 +65,7 @@ target_link_libraries(rk1828_qwen35_9b_2cards_daemon PRIVATE
   pthread
 )
 set_target_properties(rk1828_qwen35_9b_2cards_daemon PROPERTIES
-  INSTALL_RPATH "$ORIGIN/lib"
+  INSTALL_RPATH "$ORIGIN/../lib"
 )
 install(TARGETS rk1828_qwen35_9b_2cards_daemon DESTINATION bin)
 install(PROGRAMS ${LIBRKNNAPI} DESTINATION lib)

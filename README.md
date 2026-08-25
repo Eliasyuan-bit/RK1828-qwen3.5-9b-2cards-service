@@ -15,7 +15,11 @@
 | 路径 | 用途 |
 | --- | --- |
 | `native/src/main.cc` | 极薄进程入口，只负责 `init → run → deinit`。 |
-| `native/src/service_runtime.cc` | 基于官方多卡示例扩展的 JSONL 常驻 Runtime。 |
+| `native/src/server.cc` | 服务生命周期边界；不依赖 RKNN API，后续可承接 socket/HTTP transport。 |
+| `native/src/model_runtime.cc` | 基于官方多卡例程的 RKNN3 初始化、分段流水线、生成和 KV Cache 释放。 |
+| `native/src/config.cc` | JSON 配置文件读取。 |
+| `native/src/request.cc` | JSONL 请求校验与 Qwen ChatML 提示词构造。 |
+| `native/src/output.cc` | ready、delta、成功和错误事件的串行 JSONL 输出。 |
 | [config/qwen35-9b.json](config/qwen35-9b.json) | 两段模型、Tokenizer、Embedding、PCIe Device ID 与上下文长度配置示例。 |
 | [CMakeLists.txt](CMakeLists.txt) | 复用 Rockchip model-zoo 的 Runtime、Tokenizer 与第三方依赖的交叉编译配置。 |
 | [scripts](scripts/) | 交叉编译、打包、ADB 部署与板端冒烟验证脚本。 |
@@ -23,7 +27,7 @@
 
 模型 `.rknn`、`.weight`、`.gguf`、`.bin` 及 Rockchip Runtime 不纳入 Git。
 
-`native/src/service_runtime.cc` 是受版本管理的常驻 daemon 实现；它在 SDK 官方多卡例程基础上增加了 JSONL 请求处理、流式 delta、TTFT/TPS 统计、每请求 KV Cache 清理和 `--config` 配置读取。
+运行链路为 `main → server → model_runtime`。模型层持有 RKNN context、session、Tokenizer、Embedding 和 KV Cache；请求与输出数据分别由 `request`、`output` 模块处理。这样上层协议和底层 NPU 生命周期可以独立演进。
 
 ## 模型与硬件要求
 
