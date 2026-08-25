@@ -44,10 +44,12 @@ endif()
 
 add_executable(rk1828_qwen35_9b_2cards_daemon
   native/src/main.cc
+  native/src/service_runtime.cc
 )
 
 target_compile_features(rk1828_qwen35_9b_2cards_daemon PRIVATE cxx_std_14)
 target_include_directories(rk1828_qwen35_9b_2cards_daemon PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/native/include
   ${LIBRKNNAPI_INCLUDES}
   ${LIBTOKENIZER_INCLUDES}
   ${RKNN3_MODEL_ZOO_ROOT}/3rdparty/json

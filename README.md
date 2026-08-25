@@ -14,7 +14,8 @@
 
 | 路径 | 用途 |
 | --- | --- |
-| `native/src/main.cc` | 基于官方多卡示例扩展的 JSONL 常驻入口。 |
+| `native/src/main.cc` | 极薄进程入口，只负责 `init → run → deinit`。 |
+| `native/src/service_runtime.cc` | 基于官方多卡示例扩展的 JSONL 常驻 Runtime。 |
 | [config/qwen35-9b.json](config/qwen35-9b.json) | 两段模型、Tokenizer、Embedding、PCIe Device ID 与上下文长度配置示例。 |
 | [CMakeLists.txt](CMakeLists.txt) | 复用 Rockchip model-zoo 的 Runtime、Tokenizer 与第三方依赖的交叉编译配置。 |
 | [scripts](scripts/) | 交叉编译、打包、ADB 部署与板端冒烟验证脚本。 |
@@ -22,7 +23,7 @@
 
 模型 `.rknn`、`.weight`、`.gguf`、`.bin` 及 Rockchip Runtime 不纳入 Git。
 
-`native/src/main.cc` 是受版本管理的常驻 daemon 实现；它在 SDK 官方多卡例程基础上增加了 JSONL 请求处理、流式 delta、TTFT/TPS 统计、每请求 KV Cache 清理和 `--config` 配置读取。
+`native/src/service_runtime.cc` 是受版本管理的常驻 daemon 实现；它在 SDK 官方多卡例程基础上增加了 JSONL 请求处理、流式 delta、TTFT/TPS 统计、每请求 KV Cache 清理和 `--config` 配置读取。
 
 ## 模型与硬件要求
 
