@@ -11,8 +11,8 @@ bool server_ctx::init(int argc, char** argv)
 
 int server_ctx::run()
 {
-  // The runtime owns model lifetime; this layer deliberately has no RKNN API
-  // dependency.  It is the stable host for a future socket/HTTP transport.
+  // The runtime owns model lifetime. This layer has no RKNN API dependency and
+  // can host a socket/HTTP transport in a later revision.
   return model_runtime_run(argc_, argv_);
 }
 

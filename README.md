@@ -14,7 +14,7 @@
 
 | 路径 | 用途 |
 | --- | --- |
-| `native/src/main.cc` | 极薄进程入口，只负责 `init → run → deinit`。 |
+| `native/src/main.cc` | 进程入口，执行 `init → run → deinit` 生命周期调用。 |
 | `native/src/server.cc` | 服务生命周期边界；不依赖 RKNN API，后续可承接 socket/HTTP transport。 |
 | `native/src/model_runtime.cc` | 基于官方多卡例程的 RKNN3 初始化、分段流水线、生成和 KV Cache 释放。 |
 | `native/src/config.cc` | JSON 配置文件读取。 |
