@@ -1,0 +1,13 @@
+{
+  "model_alias": "qwen3.5-9b-110k",
+  "stage0_model": "/userdata/qwen3_5_9b_110k/Qwen3.5-9B-llm_seg0.rknn",
+  "stage0_weight": "/userdata/qwen3_5_9b_110k/Qwen3.5-9B-llm_seg0.weight",
+  "tokenizer": "/userdata/qwen3_5_9b_110k/Qwen3.5-9B-llm.tokenizer.gguf",
+  "embedding": "/userdata/qwen3_5_9b_110k/Qwen3.5-9B-llm.embed.bin",
+  "context_length": 16384,
+  "stage_count": 2,
+  "bucket_size": 128,
+  "core_mask": "0xff",
+  "device_ids": ["0001:11:00.0", "0003:31:00.0"],
+  "listen": "0.0.0.0:8080"
+}
