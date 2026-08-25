@@ -17,12 +17,12 @@
 | `native/src/main.cc` | 基于官方多卡示例扩展的 JSONL 常驻入口。 |
 | [config/qwen35-9b.json](config/qwen35-9b.json) | 两段模型、Tokenizer、Embedding、PCIe Device ID 与上下文长度配置示例。 |
 | [CMakeLists.txt](CMakeLists.txt) | 复用 Rockchip model-zoo 的 Runtime、Tokenizer 与第三方依赖的交叉编译配置。 |
-| `scripts/` | 可复现构建、部署与板端验证脚本。 |
-| `docs/` | JSONL 协议、模型布局与性能记录。 |
+| `scripts/` | 预留给可复现构建、部署与板端验证脚本。 |
+| `docs/` | 预留给 JSONL 协议、模型布局与性能记录。 |
 
 模型 `.rknn`、`.weight`、`.gguf`、`.bin` 及 Rockchip Runtime 不纳入 Git。
 
-> 当前提交前请确认 `native/src/main.cc`、`scripts/` 和 `docs/` 中的实际实现已一并纳入仓库；`CMakeLists.txt` 依赖这些路径。仅有配置文件时不能独立完成构建。
+`native/src/main.cc` 是受版本管理的常驻 daemon 实现；它在 SDK 官方多卡例程基础上增加了 JSONL 请求处理、流式 delta、TTFT/TPS 统计和每请求 KV Cache 清理。`scripts/` 与 `docs/` 为后续部署自动化预留。
 
 ## 模型与硬件要求
 
