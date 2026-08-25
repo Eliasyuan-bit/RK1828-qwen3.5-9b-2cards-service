@@ -65,7 +65,7 @@ cmake --install build --prefix dist/RK1828-qwen3.5-9b-2cards-service
 ```text
 dist/RK1828-qwen3.5-9b-2cards-service/
 ├── bin/rk1828_qwen35_9b_2cards_daemon
-└── lib/librknnrt.so
+└── lib/librknn3_api.so
 ```
 
 ### 2. 部署到板端
@@ -75,12 +75,12 @@ dist/RK1828-qwen3.5-9b-2cards-service/
 ```text
 /userdata/RK1828-qwen3.5-9b-2cards-service/
 ├── bin/rk1828_qwen35_9b_2cards_daemon
-├── lib/librknnrt.so
+├── lib/librknn3_api.so
 ├── config/qwen35-9b.json
 └── models/qwen3.5-9b/           # 模型分段、权重、Tokenizer、Embedding
 ```
 
-配置中的模型路径可以使用绝对路径，也可以由部署脚本在复制时替换为实际目录。板端 Runtime 与驱动必须和构建使用的 RKNN3 SDK 版本兼容。
+配置中的模型路径可以使用绝对路径，也可以由部署脚本在复制时替换为实际目录。运行库为 RKNN3 的 `librknn3_api.so`；板端 Runtime 与驱动必须和构建使用的 RKNN3 SDK 版本兼容。
 
 ### 3. 启动常驻 daemon
 
