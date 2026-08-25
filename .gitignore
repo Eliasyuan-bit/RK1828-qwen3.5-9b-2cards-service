@@ -1,0 +1,10 @@
+/build/
+/dist/
+/package/
+/models/
+*.rknn
+*.weight
+*.gguf
+*.bin
+*.log
+__pycache__/

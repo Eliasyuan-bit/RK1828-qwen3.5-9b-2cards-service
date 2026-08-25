@@ -17,12 +17,12 @@
 | `native/src/main.cc` | 基于官方多卡示例扩展的 JSONL 常驻入口。 |
 | [config/qwen35-9b.json](config/qwen35-9b.json) | 两段模型、Tokenizer、Embedding、PCIe Device ID 与上下文长度配置示例。 |
 | [CMakeLists.txt](CMakeLists.txt) | 复用 Rockchip model-zoo 的 Runtime、Tokenizer 与第三方依赖的交叉编译配置。 |
-| `scripts/` | 预留给可复现构建、部署与板端验证脚本。 |
-| `docs/` | 预留给 JSONL 协议、模型布局与性能记录。 |
+| [scripts](scripts/) | 交叉编译、打包、ADB 部署与板端冒烟验证脚本。 |
+| [docs](docs/README.md) | JSONL 协议与模型布局说明。 |
 
 模型 `.rknn`、`.weight`、`.gguf`、`.bin` 及 Rockchip Runtime 不纳入 Git。
 
-`native/src/main.cc` 是受版本管理的常驻 daemon 实现；它在 SDK 官方多卡例程基础上增加了 JSONL 请求处理、流式 delta、TTFT/TPS 统计和每请求 KV Cache 清理。`scripts/` 与 `docs/` 为后续部署自动化预留。
+`native/src/main.cc` 是受版本管理的常驻 daemon 实现；它在 SDK 官方多卡例程基础上增加了 JSONL 请求处理、流式 delta、TTFT/TPS 统计、每请求 KV Cache 清理和 `--config` 配置读取。
 
 ## 模型与硬件要求
 
@@ -52,12 +52,11 @@ rknn-smi info -l
 构建机需要：CMake、aarch64 GNU 工具链，以及与板端 Runtime 对应版本的 `rknn3-model-zoo`。本项目不复制 SDK 的 Runtime、Tokenizer 或官方多卡实现。
 
 ```bash
-cmake -S . -B build \
-  -DRKNN3_MODEL_ZOO_ROOT=/path/to/rknn3-model-zoo \
-  -DCMAKE_SYSTEM_NAME=Linux \
-  -DCMAKE_SYSTEM_PROCESSOR=aarch64
-cmake --build build -j
-cmake --install build --prefix dist/RK1828-qwen3.5-9b-2cards-service
+export RKNN3_MODEL_ZOO_ROOT=/path/to/rknn3-model-zoo
+export RK1828_C_COMPILER=/path/to/aarch64-linux-gnu-gcc
+export RK1828_CXX_COMPILER=/path/to/aarch64-linux-gnu-g++
+./scripts/build-rk1828.sh
+./scripts/package-rk1828.sh
 ```
 
 产物应包含：
@@ -84,7 +83,7 @@ dist/RK1828-qwen3.5-9b-2cards-service/
 
 ### 3. 启动常驻 daemon
 
-典型启动形式如下；实际参数以 `native/src/main.cc` 的 CLI 为准：
+推荐通过配置文件启动：
 
 ```bash
 export LD_LIBRARY_PATH=/userdata/RK1828-qwen3.5-9b-2cards-service/lib:${LD_LIBRARY_PATH}
@@ -92,6 +91,8 @@ export LD_LIBRARY_PATH=/userdata/RK1828-qwen3.5-9b-2cards-service/lib:${LD_LIBRA
   --config /userdata/RK1828-qwen3.5-9b-2cards-service/config/qwen35-9b.json \
   --daemon
 ```
+
+`--config` 会读取 stage 0 模型、权重、Tokenizer、Embedding、上下文长度、NPU core mask、段数、bucket 与两张卡的 PCIe ID。stage 1 的模型/权重路径由 `_seg0` 自动派生为 `_seg1`。旧的位置参数 CLI 仍保留，用于与 Rockchip 官方例程兼容。
 
 启动完成后，stdout 输出一行 ready 事件：
 
@@ -130,6 +131,20 @@ export LD_LIBRARY_PATH=/userdata/RK1828-qwen3.5-9b-2cards-service/lib:${LD_LIBRA
 ```
 
 服务内置 Qwen3.5 ChatML 模板，客户端只传 `messages`，不得自行加入 `<|im_start|>`、`<|im_end|>` 等控制 token。默认 `enable_thinking=false`：服务会闭合 assistant 的 `<think>` 区域，使模型直接输出最终答案。
+
+完整字段和流式事件说明见 [docs/JSONL_PROTOCOL.md](docs/JSONL_PROTOCOL.md)。
+
+## ADB 部署与验收
+
+模型文件不纳入 Git，也不会由部署脚本复制。将模型放在板端持久化路径并更新配置后执行：
+
+```bash
+export ADB_SERIAL=<board-serial-or-host:port>
+./scripts/deploy-adb.sh
+./scripts/verify-adb.sh
+```
+
+`verify-adb.sh` 会发送 [tests/fixtures/smoke-request.jsonl](tests/fixtures/smoke-request.jsonl) 等价的单轮 JSONL 请求，并检查 daemon 是否能完成初始化和返回响应。
 
 ## 已验证性能
 

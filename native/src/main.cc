@@ -30,6 +30,7 @@
 #include <condition_variable>
 #include <deque>
 #include <functional>
+#include <fstream>
 #include <iostream>
 #include <inttypes.h>
 #include <memory>
@@ -1316,28 +1317,121 @@ static std::string build_qwen35_chat_prompt(const nlohmann::json& messages, bool
   return prompt;
 }
 
+struct ServiceConfig {
+  std::string stage0_model;
+  std::string stage0_weight;
+  std::string tokenizer;
+  std::string embedding;
+  int32_t context_length = 0;
+  uint32_t core_mask = 0;
+  size_t stage_count = 0;
+  uint64_t bucket_size = 0;
+  std::vector<std::string> device_ids;
+};
+
+static bool load_service_config(const char* path, ServiceConfig* config)
+{
+  if (!path || !config) return false;
+  try {
+    std::ifstream stream(path);
+    if (!stream) {
+      printf("cannot open config: %s\n", path);
+      return false;
+    }
+    nlohmann::json value;
+    stream >> value;
+    config->stage0_model = value.value("stage0_model", "");
+    config->stage0_weight = value.value("stage0_weight", "");
+    config->tokenizer = value.value("tokenizer", "");
+    config->embedding = value.value("embedding", "");
+    config->context_length = value.value("context_length", 0);
+    config->stage_count = value.value("stage_count", 0U);
+    config->bucket_size = value.value("bucket_size", 0ULL);
+
+    const std::string core_mask = value.value("core_mask", "");
+    char* end = nullptr;
+    const unsigned long parsed_mask = strtoul(core_mask.c_str(), &end, 0);
+    if (core_mask.empty() || !end || *end != '\0') {
+      printf("invalid core_mask in config: %s\n", core_mask.c_str());
+      return false;
+    }
+    config->core_mask = static_cast<uint32_t>(parsed_mask);
+
+    if (value.contains("device_ids")) {
+      if (!value.at("device_ids").is_array()) {
+        printf("device_ids must be an array\n");
+        return false;
+      }
+      for (const auto& id : value.at("device_ids")) {
+        if (!id.is_string()) {
+          printf("each device_id must be a string\n");
+          return false;
+        }
+        config->device_ids.push_back(id.get<std::string>());
+      }
+    }
+
+    if (config->stage0_model.empty() || config->stage0_weight.empty() ||
+        config->tokenizer.empty() || config->embedding.empty() ||
+        config->context_length <= 0 || config->stage_count == 0 || config->bucket_size == 0 ||
+        config->device_ids.size() != config->stage_count) {
+      printf("config requires model paths, positive context_length/stage_count/bucket_size, and one device_id per stage\n");
+      return false;
+    }
+    return true;
+  } catch (const std::exception& error) {
+    printf("invalid config %s: %s\n", path, error.what());
+    return false;
+  }
+}
+
 int main(int argc, char** argv)
 {
-  if (argc < 9) {
+  const bool config_mode = argc >= 3 && strcmp(argv[1], "--config") == 0;
+  if (!config_mode && argc < 9) {
     LOGW("Usage: %s <stage0_model.rknn> <stage0_weight> <tokenizer.gguf> <embedding.bin> <max_context_len> <run_core_mask> <stage_count> <bucket_size> [prompt] [max_new_tokens] [verbose] [ignore_eos] [rope_path] [device_id_0] ... [--perf <input_tokens> <output_tokens>]\n",
          argv[0]);
+    LOGW("   or: %s --config <service.json> [--daemon]\n", argv[0]);
     return -1;
   }
 
-  const char* base_model_path = argv[1];
-  const char* base_weight_path = argv[2];
-  const char* tokenizer_path = argv[3];
-  const char* embedding_path = argv[4];
-  int32_t max_context_len = atoi(argv[5]);
-  uint32_t run_core_mask = (uint32_t)strtoul(argv[6], nullptr, 16);
-  g_stage_count = (size_t)atoi(argv[7]);
-  g_bucket_size = (uint64_t)strtoul(argv[8], nullptr, 10);
+  ServiceConfig service_config;
+  std::vector<std::string> configured_device_ids;
+  const char* base_model_path = nullptr;
+  const char* base_weight_path = nullptr;
+  const char* tokenizer_path = nullptr;
+  const char* embedding_path = nullptr;
+  int32_t max_context_len = 0;
+  uint32_t run_core_mask = 0;
+  int optional_arg_start = 9;
+  if (config_mode) {
+    if (!load_service_config(argv[2], &service_config)) return -1;
+    base_model_path = service_config.stage0_model.c_str();
+    base_weight_path = service_config.stage0_weight.c_str();
+    tokenizer_path = service_config.tokenizer.c_str();
+    embedding_path = service_config.embedding.c_str();
+    max_context_len = service_config.context_length;
+    run_core_mask = service_config.core_mask;
+    g_stage_count = service_config.stage_count;
+    g_bucket_size = service_config.bucket_size;
+    configured_device_ids = service_config.device_ids;
+    optional_arg_start = 3;
+  } else {
+    base_model_path = argv[1];
+    base_weight_path = argv[2];
+    tokenizer_path = argv[3];
+    embedding_path = argv[4];
+    max_context_len = atoi(argv[5]);
+    run_core_mask = (uint32_t)strtoul(argv[6], nullptr, 16);
+    g_stage_count = (size_t)atoi(argv[7]);
+    g_bucket_size = (uint64_t)strtoul(argv[8], nullptr, 10);
+  }
 
   bool perf_mode = false;
   uint64_t perf_input_tokens = 0;
   uint64_t perf_output_tokens = 0;
   std::vector<const char*> optional_args;
-  for (int i = 9; i < argc; ++i) {
+  for (int i = optional_arg_start; i < argc; ++i) {
     if (strcmp(argv[i], "--perf") == 0) {
       if (perf_mode || i + 2 >= argc) {
         LOGW("--perf requires exactly one <input_tokens> <output_tokens> pair\n");
@@ -1411,6 +1505,13 @@ int main(int argc, char** argv)
   std::vector<std::string> ext_device_ids;
   for (size_t i = optional_offset + 5; i < optional_args.size() && ext_device_ids.size() < g_stage_count; ++i) {
     ext_device_ids.push_back(optional_args[i]);
+  }
+  if (config_mode) {
+    if (!ext_device_ids.empty()) {
+      printf("device IDs must be configured in --config mode\n");
+      return -1;
+    }
+    ext_device_ids = configured_device_ids;
   }
 
   if (g_stage_count < 1) {
