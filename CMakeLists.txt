@@ -45,6 +45,8 @@ endif()
 add_executable(rk1828_qwen35_9b_2cards_daemon
   native/src/main.cc
   native/src/service_runtime.cc
+  native/src/service_config.cc
+  native/src/request_processor.cc
 )
 
 target_compile_features(rk1828_qwen35_9b_2cards_daemon PRIVATE cxx_std_14)

@@ -13,6 +13,8 @@
 // limitations under the License.
 
 #include "service_runtime.h"
+#include "service_config.h"
+#include "request_processor.h"
 
 #include "Tokenizer.h"
 #include "float16.h"
@@ -32,7 +34,6 @@
 #include <condition_variable>
 #include <deque>
 #include <functional>
-#include <fstream>
 #include <iostream>
 #include <inttypes.h>
 #include <memory>
@@ -1289,103 +1290,6 @@ static bool run_pipeline_once(std::vector<StageRuntime>& stages, PipelineState& 
   return ret == RKNN3_SUCCESS && !pipeline_failed(pipeline);
 }
 
-static std::string build_qwen35_chat_prompt(const nlohmann::json& messages, bool enable_thinking)
-{
-  if (!messages.is_array() || messages.empty()) {
-    throw std::runtime_error("messages must be a non-empty array");
-  }
-
-  std::string prompt;
-  for (const auto& message : messages) {
-    const std::string role = message.value("role", "");
-    if (role != "system" && role != "user" && role != "assistant") {
-      throw std::runtime_error("message role must be system, user, or assistant");
-    }
-    if (!message.contains("content") || !message.at("content").is_string()) {
-      throw std::runtime_error("message content must be a string");
-    }
-    prompt += "<|im_start|>" + role + "\n";
-    prompt += message.at("content").get<std::string>();
-    prompt += "<|im_end|>\n";
-  }
-  prompt += "<|im_start|>assistant\n";
-  if (!enable_thinking) {
-    // Qwen3.5: closing the thinking block before generation makes the first
-    // generated token belong to the final answer, not the reasoning trace.
-    prompt += "<think>\n\n</think>\n\n";
-  } else {
-    prompt += "<think>\n\n";
-  }
-  return prompt;
-}
-
-struct ServiceConfig {
-  std::string stage0_model;
-  std::string stage0_weight;
-  std::string tokenizer;
-  std::string embedding;
-  int32_t context_length = 0;
-  uint32_t core_mask = 0;
-  size_t stage_count = 0;
-  uint64_t bucket_size = 0;
-  std::vector<std::string> device_ids;
-};
-
-static bool load_service_config(const char* path, ServiceConfig* config)
-{
-  if (!path || !config) return false;
-  try {
-    std::ifstream stream(path);
-    if (!stream) {
-      printf("cannot open config: %s\n", path);
-      return false;
-    }
-    nlohmann::json value;
-    stream >> value;
-    config->stage0_model = value.value("stage0_model", "");
-    config->stage0_weight = value.value("stage0_weight", "");
-    config->tokenizer = value.value("tokenizer", "");
-    config->embedding = value.value("embedding", "");
-    config->context_length = value.value("context_length", 0);
-    config->stage_count = value.value("stage_count", 0U);
-    config->bucket_size = value.value("bucket_size", 0ULL);
-
-    const std::string core_mask = value.value("core_mask", "");
-    char* end = nullptr;
-    const unsigned long parsed_mask = strtoul(core_mask.c_str(), &end, 0);
-    if (core_mask.empty() || !end || *end != '\0') {
-      printf("invalid core_mask in config: %s\n", core_mask.c_str());
-      return false;
-    }
-    config->core_mask = static_cast<uint32_t>(parsed_mask);
-
-    if (value.contains("device_ids")) {
-      if (!value.at("device_ids").is_array()) {
-        printf("device_ids must be an array\n");
-        return false;
-      }
-      for (const auto& id : value.at("device_ids")) {
-        if (!id.is_string()) {
-          printf("each device_id must be a string\n");
-          return false;
-        }
-        config->device_ids.push_back(id.get<std::string>());
-      }
-    }
-
-    if (config->stage0_model.empty() || config->stage0_weight.empty() ||
-        config->tokenizer.empty() || config->embedding.empty() ||
-        config->context_length <= 0 || config->stage_count == 0 || config->bucket_size == 0 ||
-        config->device_ids.size() != config->stage_count) {
-      printf("config requires model paths, positive context_length/stage_count/bucket_size, and one device_id per stage\n");
-      return false;
-    }
-    return true;
-  } catch (const std::exception& error) {
-    printf("invalid config %s: %s\n", path, error.what());
-    return false;
-  }
-}
 
 bool ServiceRuntime::init(int argc, char** argv)
 {
